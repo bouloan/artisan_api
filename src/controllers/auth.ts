@@ -95,7 +95,7 @@ export default class AuthController {
 	};
 
 	logout: RequestHandler = async (req, res, next) => {
-		const userId: string = req.query.userId;
+		const userId: string = req!.query.userId as string;
 		try {
 			await this.tokenService.removeRefreshTokensFromDb(userId);
 			res.status(200).json({

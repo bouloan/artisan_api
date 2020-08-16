@@ -19,21 +19,7 @@ export interface IError extends Error {
 const app = express();
 
 //middleware permettant de sécurisé en mettant en place différents headers
-app.use(
-	helmet({
-		contentSecurityPolicy: {
-			directives: {
-				defaultSrc: ["'self"],
-				styleSrc: ["'self"],
-				scriptSrc: ["'self"],
-				reportUri: '/report-violation',
-				objectSrc: ["'self"],
-				upgradeInsecureRequests: true,
-			},
-		},
-		referrerPolicy: { policy: 'same-origin' },
-	})
-);
+app.use(helmet());
 
 app.use(compression());
 

@@ -10,7 +10,7 @@ export interface IItem extends Document {
 	supplierWebsite: string;
 	quantity: number;
 	minQuantity: number;
-	creator: string;
+	creator: any;
 }
 
 const ItemSchema: Schema = new Schema({
