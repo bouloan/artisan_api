@@ -1,7 +1,9 @@
 import { Result, ValidationError } from 'express-validator';
 import { IError } from '../middlewares/errors';
 
-export const throwValidationErrorIfExist = (errors: Result<ValidationError>) => {
+export const throwValidationErrorIfExist = (
+	errors: Result<ValidationError>
+) => {
 	if (!errors.isEmpty()) {
 		let errorMessage: string = '';
 		errors.array().forEach((a) => {
@@ -9,7 +11,7 @@ export const throwValidationErrorIfExist = (errors: Result<ValidationError>) => 
 		});
 		errorMessage = errorMessage.slice(0, -1);
 		const error: IError = new Error(errorMessage);
-		error.statusCode = 422;
+		error.statusCode = 400;
 		throw error;
 	}
 };

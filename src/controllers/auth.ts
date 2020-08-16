@@ -1,65 +1,138 @@
-import bcryptjs from 'bcryptjs';
-import dotenv from 'dotenv';
 import { RequestHandler } from 'express';
 import { validationResult } from 'express-validator';
-import { sign } from 'jsonwebtoken';
-import { IError } from '../middlewares/errors';
-import User, { ILoginUser, IUser } from '../models/user';
+import { IRefreshToken } from '../database/models/refreshToken';
+import { sendError } from '../middlewares/errors';
+import EmailService from '../services/email.service';
+import TokenService, { ITokens } from '../services/token.service';
+import UserService, { IToValidateUser } from '../services/user.service';
 import { throwValidationErrorIfExist } from '../services/validation.service';
+import { IUser } from './../database/models/user';
 
-dotenv.config();
+export interface Ilogin {
+	email: string;
+	password: string;
+}
 
-export const signup: RequestHandler = async (req, res, next) => {
-	const errors = validationResult(req);
-	throwValidationErrorIfExist(errors);
-	const requestUser: IUser = req.body;
-	try {
-		const hashedPwd = await bcryptjs.hash(requestUser.password, 12);
-		requestUser.password = hashedPwd;
-		const user = new User(requestUser);
-		const result = await user.save();
-		return res
-			.status(201)
-			.json({ message: "L'utilisateur a été enregistré", userId: result._id });
-	} catch (err) {
-		if (!err.statusCode) {
-			err.statusCode = 500;
-		}
-		next(err);
-	}
-};
+export default class AuthController {
+	emailService: EmailService = new EmailService();
+	userService: UserService = new UserService();
+	tokenService: TokenService = new TokenService();
 
-export const login: RequestHandler = async (req, res, next) => {
-	const loginUser: ILoginUser = req.body;
-	let loadedUser: IUser;
-	//vérifie si le mail est dans la bdd
-	try {
-		const user = await User.findOne({ email: loginUser.email });
-		if (!user) {
-			const error: IError = new Error("Aucun n'utilisateur n'est rattaché à cet email");
-			error.statusCode = 401;
-			throw error;
+	signup: RequestHandler = async (req, res, next) => {
+		try {
+			const errors = validationResult(req);
+			throwValidationErrorIfExist(errors);
+
+			const requestUser: IUser = req.body;
+
+			const user = (await this.userService.signup(requestUser)) as IUser;
+
+			return res.status(201).json({
+				message:
+					'Vous avez bien été enregistré. Veuillez finaliser votre inscription en vous rendant sur votre boite mail',
+				user: { id: user._id, email: user.email },
+			});
+		} catch (err) {
+			sendError(err, next);
 		}
-		loadedUser = user;
-		const passwordsAreEqual = await bcryptjs.compare(loginUser.password, loadedUser.password);
-		if (!passwordsAreEqual) {
-			const error: IError = new Error('Les identifiants ne sont pas valides');
-			error.statusCode = 401;
-			throw error;
+	};
+
+	accountValidation: RequestHandler = async (req, res, next) => {
+		/* la requête doit comprendre email et validation token */
+		const requestUser: Partial<IUser> = req.body;
+		try {
+			const user = await this.userService.accountValidation(requestUser);
+
+			res.status(201).json({
+				message: 'Votre compte a été validé, vous pouvez vous connecter',
+				userId: user._id,
+			});
+		} catch (err) {
+			sendError(err, next);
 		}
-		const token = sign(
-			{
-				email: loadedUser.email,
-				userId: loadedUser._id.toString()
-			},
-			`${process.env.JWT_SECRET_KEY}`,
-			{ expiresIn: '1h' }
-		);
-		res.status(200).json({ token: `Bearer: ${token}`, userId: loadedUser._id.toString() });
-	} catch (err) {
-		if (!err.statusCode) {
-			err.statusCode = 500;
+	};
+
+	accountValidationTokenCreation: RequestHandler = async (req, res, next) => {
+		const email: string = req.body;
+		try {
+			const user = await this.userService.accountValidationTokenCreation(email);
+
+			res.status(201).json({
+				message:
+					'Un code vous a été envoyé par email pour finaliser votre inscription',
+				user: user,
+			});
+		} catch (err) {}
+	};
+
+	login: RequestHandler = async (req, res, next) => {
+		try {
+			const loginUser: Ilogin = req.body;
+
+			const data = await this.userService.login(loginUser);
+			//if user is active, he can be connected to all routes so tokens are returned
+			if (data.isActiveUser === true) {
+				const tokens = data as ITokens;
+				res.status(200).json({
+					token: tokens.token,
+					refreshToken: tokens.refreshToken,
+					userId: tokens.userId,
+					isActiveUser: tokens.isActiveUser,
+				});
+			}
+			//else email is return to validate token
+			else {
+				const toValidateUser = data as IToValidateUser;
+				res.status(200).json({
+					message: toValidateUser.message,
+					email: toValidateUser.email,
+					isActiveUser: toValidateUser.isActiveUser,
+				});
+			}
+		} catch (err) {
+			sendError(err, next);
 		}
-		next(err);
-	}
-};
+	};
+
+	logout: RequestHandler = async (req, res, next) => {
+		const userId: string = req.query.userId;
+		try {
+			await this.tokenService.removeRefreshTokensFromDb(userId);
+			res.status(200).json({
+				message: "L'utilisateur est déconnecté",
+			});
+		} catch (err) {
+			sendError(err, next);
+		}
+	};
+
+	token: RequestHandler = async (req, res, next) => {
+		try {
+			let request: IRefreshToken = req.body;
+			const newToken = await this.tokenService.renewToken(request);
+
+			res.status(200).json({
+				token: `Bearer: ${newToken}`,
+				refreshToken: `Bearer: ${request.refreshToken}`,
+				userId: request.userId,
+			});
+		} catch (err) {
+			sendError(err, next);
+		}
+	};
+
+	passwordRecovery: RequestHandler = async (req, res, next) => {
+		try {
+			const email: string = req.body.email;
+			const passwordRecovery = await this.userService.passwordRecovery(email);
+			if (passwordRecovery) {
+				res.status(200).json({
+					message:
+						"Si vous votre email a été enregistré dans l'application Commis, un mot de passe temporaire vous a été envoyé",
+				});
+			}
+		} catch (err) {
+			sendError(err, next);
+		}
+	};
+}

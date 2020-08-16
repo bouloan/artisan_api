@@ -1,9 +1,7 @@
-import dotenv from 'dotenv';
 import { RequestHandler } from 'express';
 import { verify } from 'jsonwebtoken';
+import { JWT_TOKEN_SECRET_KEY } from './../env';
 import { IError } from './errors';
-
-dotenv.config();
 
 interface IdecodedToken {
 	email: string;
@@ -14,28 +12,24 @@ interface IdecodedToken {
 
 export const verifyJWT: RequestHandler = (req, res, next) => {
 	let token = req.get('Authorization');
-	let decodedToken;
 	if (token) {
 		token = token.split(' ')[1];
 	} else {
-		const error: IError = new Error('Non authentitifé');
+		//il n'y a pas de token lié à la requête
+		const error: IError = new Error('Utilisateur non authentitifé');
 		error.statusCode = 401;
 		throw error;
 	}
-	try {
-		decodedToken = verify(token, `${process.env.JWT_SECRET_KEY}`);
-	} catch (err) {
-		if (!err.statusCode) {
-			err.statusCode = 500;
+	//if token is valid, use id is linked to the body request
+	verify(token, `${JWT_TOKEN_SECRET_KEY}`, function (err, token) {
+		if (err) {
+			//le token n'est pas valide
+			const error: IError = new Error('Token non valide');
+			error.statusCode = 401;
+			throw error;
+		} else {
+			req.body.userId = (token as IdecodedToken).userId;
+			next();
 		}
-		throw err;
-	}
-	if (!decodedToken) {
-		const error: IError = new Error('Non authentitifé');
-		error.statusCode = 401;
-		throw error;
-	}
-
-	req.body.userId = (decodedToken as IdecodedToken).userId;
-	next();
+	});
 };

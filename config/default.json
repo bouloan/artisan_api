@@ -1,0 +1,9 @@
+{
+  "server": {
+    "port": 3000
+  },
+  "jwt": {
+    "tokenExpiresIn": "1h",
+    "refreshTokenExpireIn": "30d"
+  }
+}
